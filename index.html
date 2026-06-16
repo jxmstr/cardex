@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
-<title>Cardex BUILD-CHART</title>
+<title>Cardex BUILD-PRICE2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
@@ -12773,7 +12773,8 @@ function CardPage({
   useEffect(() => {
     let on = true;
     setLoadingH(true);
-    const hq = "name=" + encodeURIComponent(card.name) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration;
+    const isPar = /_p\\d/i.test(card.id) ? "1" : "";
+    const hq = "name=" + encodeURIComponent(card.name) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration + "&parallel=" + isPar;
     fetch("/api/history?" + hq).then(r => r.json()).then(d => {
       if (on) {
         setHist(d || null);
@@ -12877,19 +12878,25 @@ function CardPage({
       gap: 14,
       marginTop: 16
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "mono",
-    style: {
-      fontSize: 32,
-      fontWeight: 600,
-      color: pricing && pricing.stats ? C.ink : C.mute
-    }
-  }, pricing && pricing.stats ? money(pricing.stats.median, pricing.stats.currency === "GBP" ? "GBP" : "USD") : money(null, cur)), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 14,
-      color: C.mute
-    }
-  }, loadingP ? "loading…" : pricing && pricing.stats ? "raw median · " + pricing.stats.count + " listings " + (market === "both" ? "(UK+US, " + (pricing.display || "USD") + ")" : "") : "no clean listings found")), /*#__PURE__*/React.createElement("div", {
+  }, (() => {
+    const mp = hist && hist.available && hist.marketPrice;
+    const eb = pricing && pricing.stats && pricing.stats.median;
+    const val = mp != null ? mp : eb;
+    const lbl = mp != null ? "market price" + (hist.printing ? " · " + hist.printing : "") : eb != null ? "raw median · " + pricing.stats.count + " eBay listings" : loadingH || loadingP ? "loading…" : "no price found";
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      className: "mono",
+      style: {
+        fontSize: 32,
+        fontWeight: 600,
+        color: val != null ? C.ink : C.mute
+      }
+    }, val != null ? money(val, "USD") : money(null, cur)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 14,
+        color: C.mute
+      }
+    }, lbl));
+  })()), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr 1fr",
