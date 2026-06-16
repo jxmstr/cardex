@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
-<title>Cardex</title>
+<title>Cardex BUILD-CHART</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
@@ -12773,7 +12773,7 @@ function CardPage({
   useEffect(() => {
     let on = true;
     setLoadingH(true);
-    const hq = "name=" + encodeURIComponent(card.name) + "&set=" + encodeURIComponent(card.setCode || card.setName || "") + "&duration=" + duration;
+    const hq = "name=" + encodeURIComponent(card.name) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration;
     fetch("/api/history?" + hq).then(r => r.json()).then(d => {
       if (on) {
         setHist(d || null);
