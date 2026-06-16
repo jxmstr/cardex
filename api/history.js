@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     // Search JustTCG for this card in the One Piece game.
     // The /cards GET endpoint accepts a search query (q) + game filter.
     const params = new URLSearchParams({
-      game: "one-piece",
+      game: "one-piece-card-game",
       q: name,
       limit: "20",
       priceHistoryDuration: duration, // 7d / 30d / 90d
