@@ -19,8 +19,9 @@ export default async function handler(req, res) {
   const key = process.env.JUSTTCG_API_KEY;
   if (!key) return res.status(200).json({ available: false, reason: "JustTCG API key not configured", history: [] });
 
-  const { name = "", set = "", duration = "90d" } = req.query;
+  const { name = "", set = "", duration = "90d", parallel = "" } = req.query;
   if (!name) return res.status(400).json({ error: "Missing name" });
+  const isParallel = parallel === "1" || /_p\d/i.test(name);
 
   try {
     // Search JustTCG for this card in the One Piece game.
@@ -52,10 +53,21 @@ export default async function handler(req, res) {
     // From the chosen card, pick the Near Mint / Normal variant as the headline,
     // and collect any variant that has a priceHistory.
     const variants = card.variants || [];
-    const pickVariant =
-      variants.find((v) => /near\s*mint/i.test(v.condition || "") && /normal/i.test(v.printing || "")) ||
-      variants.find((v) => /near\s*mint/i.test(v.condition || "")) ||
-      variants[0];
+    const nm = (v) => /near\s*mint/i.test(v.condition || "");
+    const foil = (v) => /(foil|holo|parallel|alt)/i.test(v.printing || "");
+    let pickVariant;
+    if (isParallel) {
+      pickVariant =
+        variants.find((v) => nm(v) && foil(v)) ||
+        variants.find((v) => foil(v)) ||
+        variants.find((v) => nm(v)) ||
+        variants[0];
+    } else {
+      pickVariant =
+        variants.find((v) => nm(v) && /normal/i.test(v.printing || "")) ||
+        variants.find((v) => nm(v)) ||
+        variants[0];
+    }
 
     // Build the history series from {p,t} points (t = unix seconds).
     const rawHist =
@@ -82,6 +94,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       available: true,
+      marketPrice: pickVariant ? pickVariant.price : null,
       matched: { name: card.name, set: card.set_name || card.set, rarity: card.rarity },
       condition: pickVariant?.condition || null,
       printing: pickVariant?.printing || null,
