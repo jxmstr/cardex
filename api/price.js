@@ -69,8 +69,10 @@ export default async function handler(req, res) {
     const token = await getToken();
     const region = MARKETPLACE[String(market).toLowerCase()] || "EBAY_US";
 
-    const idMatch = q.match(/\b([A-Z]{2,4}\d{2}-\d{3})\b/i);
-    const cardId = idMatch ? idMatch[1].toUpperCase() : null;
+    // Detect card ID, including parallel suffix (_p1, _p2…)
+    const idFull = q.match(/\b([A-Z]{2,4}\d{2}-\d{3})(_p\d+)?\b/i);
+    const cardId = idFull ? idFull[1].toUpperCase() : null;       // base ID, e.g. OP03-123
+    const isParallel = !!(idFull && idFull[2]);                    // had _pN suffix
 
     const url =
       "https://api.ebay.com/buy/browse/v1/item_summary/search" +
@@ -91,16 +93,27 @@ export default async function handler(req, res) {
 
     // STRICT: keep only listings whose title contains the exact card ID;
     // else require all name words; else nothing (honest, no wrong cards).
-    const nameOnly = q.replace(/\b[A-Z]{2,4}\d{2}-\d{3}\b/i, "").trim();
+    const nameOnly = q.replace(/\b[A-Z]{2,4}\d{2}-\d{3}(_p\d+)?\b/i, "").trim();
     const nameWords = nameOnly.split(/[^A-Za-z]+/).filter((w) => w.length >= 3);
     if (cardId) {
       const reId = new RegExp(cardId.replace("-", "[- ]?"), "i");
       const byId = items.filter((it) => reId.test(it.title || ""));
-      if (byId.length >= 1) items = byId;
-      else if (nameWords.length)
-        items = items.filter((it) =>
-          nameWords.every((w) => new RegExp("\\b" + w, "i").test(it.title || ""))
-        );
+      const byName = nameWords.length
+        ? items.filter((it) => nameWords.every((w) => new RegExp("\\b" + w, "i").test(it.title || "")))
+        : [];
+      if (isParallel) {
+        // Parallel/alt-art: sellers rarely write the exact _pN, so match on
+        // ID OR name, then prefer titles that look like alt-art/parallel.
+        let pool = [];
+        const seen = new Set();
+        for (const it of byId.concat(byName)) { if(!seen.has(it.itemId)){seen.add(it.itemId);pool.push(it);} }
+        const altish = pool.filter((it)=>/(alt|parallel|manga|special|\bSP\b|\bSEC\b|premium|leader\salt)/i.test(it.title||""));
+        items = altish.length >= 2 ? altish : (pool.length ? pool : byName);
+      } else {
+        // Base card: keep strict — ID match wins, else name match.
+        if (byId.length >= 1) items = byId;
+        else if (byName.length) items = byName;
+      }
     }
 
     const currency = items[0]?.price?.currency || (region === "EBAY_GB" ? "GBP" : "USD");
