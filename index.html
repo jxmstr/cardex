@@ -12731,6 +12731,9 @@ function CardPage({
   const [loadingP, setLoadingP] = useState(false);
   const [sold, setSold] = useState(null);
   const [loadingS, setLoadingS] = useState(false);
+  const [hist, setHist] = useState(null);
+  const [loadingH, setLoadingH] = useState(false);
+  const [duration, setDuration] = useState("90d");
   useEffect(() => {
     let on = true;
     setLoadingP(true);
@@ -12767,7 +12770,25 @@ function CardPage({
       on = false;
     };
   }, [card, grade, market]);
-  const hist = useMemo(() => shapeHistory(card, grade), [card, grade]);
+  useEffect(() => {
+    let on = true;
+    setLoadingH(true);
+    const hq = "name=" + encodeURIComponent(card.name) + "&set=" + encodeURIComponent(card.setCode || card.setName || "") + "&duration=" + duration;
+    fetch("/api/history?" + hq).then(r => r.json()).then(d => {
+      if (on) {
+        setHist(d || null);
+        setLoadingH(false);
+      }
+    }).catch(() => {
+      if (on) {
+        setHist(null);
+        setLoadingH(false);
+      }
+    });
+    return () => {
+      on = false;
+    };
+  }, [card, duration]);
   const s = card.score;
   const k = cur === "GBP" ? fx : 1;
   return /*#__PURE__*/React.createElement("div", {
@@ -12868,7 +12889,7 @@ function CardPage({
       fontSize: 14,
       color: C.mute
     }
-  }, loadingP ? "loading…" : pricing && pricing.stats ? "raw median · " + pricing.stats.count + " listings" : "no clean listings found")), /*#__PURE__*/React.createElement("div", {
+  }, loadingP ? "loading…" : pricing && pricing.stats ? "raw median · " + pricing.stats.count + " listings " + (market === "both" ? "(UK+US, " + (pricing.display || "USD") + ")" : "") : "no clean listings found")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr 1fr",
@@ -12990,8 +13011,9 @@ function CardPage({
     loadingS: loadingS
   }), tab === "chart" && /*#__PURE__*/React.createElement(ChartTab, {
     hist: hist,
-    grade: grade,
-    setGrade: setGrade
+    loadingH: loadingH,
+    duration: duration,
+    setDuration: setDuration
   })));
 }
 function Thesis({
@@ -13266,14 +13288,33 @@ function ListingsTab({
       fontSize: 12,
       color: C.mute
     }
-  }, it.condition, " \xB7 ", it.seller || "")), /*#__PURE__*/React.createElement("span", {
+  }, it.market && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      fontSize: 10,
+      fontWeight: 700,
+      padding: "1px 5px",
+      borderRadius: 4,
+      marginRight: 6,
+      background: it.market === "UK" ? "#5b8def22" : "#37c08a22",
+      color: it.market === "UK" ? "#5b8def" : "#37c08a"
+    }
+  }, it.market), it.condition, " \xB7 ", it.seller || "")), /*#__PURE__*/React.createElement("span", {
     className: "mono",
     style: {
       fontSize: 15,
       fontWeight: 600,
-      flexShrink: 0
+      flexShrink: 0,
+      textAlign: "right"
     }
-  }, money(it.price, it.currency === "GBP" ? "GBP" : "USD")))));
+  }, money(it.price, it.currency === "GBP" ? "GBP" : "USD"), it.nativeCurrency && it.nativeCurrency !== it.currency && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "block",
+      fontSize: 10,
+      color: C.mute,
+      fontWeight: 400
+    }
+  }, money(it.nativePrice, it.nativeCurrency))))));
 }
 function SoldTab({
   sold,
@@ -13419,94 +13460,198 @@ function SoldTab({
 }
 function ChartTab({
   hist,
-  grade,
-  setGrade
+  loadingH,
+  duration,
+  setDuration
 }) {
   const W = 640,
-    H = 180;
-  const vals = hist.map(p => p.v);
-  const hi = Math.max(...vals),
-    lo = Math.min(...vals);
-  const X = i => i / (hist.length - 1) * W,
-    Y = v => H - (v - lo) / (hi - lo || 1) * H;
-  const d = hist.map((p, i) => (i ? "L" : "M") + X(i).toFixed(1) + "," + Y(p.v).toFixed(1)).join(" ");
+    H = 190;
+  const durs = [["7d", "7D"], ["30d", "30D"], ["90d", "90D"]];
+  const points = hist && hist.available && hist.history || [];
+  const st = hist && hist.stats;
+  let body;
+  if (loadingH) {
+    body = /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "50px",
+        textAlign: "center",
+        color: C.sub
+      }
+    }, "Loading price history\u2026");
+  } else if (!points.length) {
+    body = /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "40px 24px",
+        textAlign: "center",
+        border: "1px dashed " + C.line,
+        borderRadius: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 26,
+        marginBottom: 10,
+        opacity: 0.5
+      }
+    }, "\u25D4"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 15,
+        fontWeight: 600,
+        marginBottom: 6
+      }
+    }, "No price history yet"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: C.sub,
+        maxWidth: 380,
+        margin: "0 auto",
+        lineHeight: 1.5
+      }
+    }, hist && hist.reason ? hist.reason : "No history returned for this card from the data source."));
+  } else {
+    const vals = points.map(p => p.price);
+    const hi = Math.max(...vals),
+      lo = Math.min(...vals);
+    const X = i => i / (points.length - 1 || 1) * W,
+      Y = v => H - (v - lo) / (hi - lo || 1) * H;
+    const d = points.map((p, i) => (i ? "L" : "M") + X(i).toFixed(1) + "," + Y(p.price).toFixed(1)).join(" ");
+    const area = d + (" L" + W + "," + H + " L0," + H + " Z");
+    const up = points[points.length - 1].price >= points[0].price;
+    const col = up ? C.up : C.down;
+    const lbl = [0, Math.floor(points.length / 2), points.length - 1];
+    body = /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "baseline",
+        marginBottom: 4,
+        flexWrap: "wrap",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "mono",
+      style: {
+        fontSize: 26,
+        fontWeight: 700
+      }
+    }, money(points[points.length - 1].price, "USD")), st && st.change30d != null && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        marginLeft: 10,
+        color: st.change30d >= 0 ? C.up : C.down
+      }
+    }, pctTxt(st.change30d), " 30d")), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: C.mute
+      }
+    }, hist.matched ? hist.matched.name + " · " + (hist.condition || "NM") : "")), /*#__PURE__*/React.createElement("svg", {
+      viewBox: "-6 -10 " + (W + 12) + " " + (H + 30),
+      style: {
+        width: "100%"
+      }
+    }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+      id: "cg",
+      x1: "0",
+      y1: "0",
+      x2: "0",
+      y2: "1"
+    }, /*#__PURE__*/React.createElement("stop", {
+      offset: "0%",
+      stopColor: col,
+      stopOpacity: "0.25"
+    }), /*#__PURE__*/React.createElement("stop", {
+      offset: "100%",
+      stopColor: col,
+      stopOpacity: "0"
+    }))), [0, .5, 1].map(t => /*#__PURE__*/React.createElement("line", {
+      key: t,
+      x1: 0,
+      y1: t * H,
+      x2: W,
+      y2: t * H,
+      stroke: C.line,
+      strokeWidth: 0.6
+    })), /*#__PURE__*/React.createElement("path", {
+      d: area,
+      fill: "url(#cg)"
+    }), /*#__PURE__*/React.createElement("path", {
+      d: d,
+      fill: "none",
+      stroke: col,
+      strokeWidth: 2.2
+    }), lbl.map(i => /*#__PURE__*/React.createElement("text", {
+      key: i,
+      x: Math.min(Math.max(X(i), 14), W - 14),
+      y: H + 18,
+      fill: C.mute,
+      fontSize: 10,
+      textAnchor: "middle"
+    }, points[i].date.slice(5)))), st && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))",
+        gap: 1,
+        background: C.line,
+        border: "1px solid " + C.line,
+        borderRadius: 10,
+        overflow: "hidden",
+        marginTop: 12
+      }
+    }, [["7d", st.change7d], ["30d", st.change30d], ["90d", st.change90d], ["90d low", st.min90d, 1], ["90d high", st.max90d, 1]].map(([l, v, money_], i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        background: C.panel,
+        padding: "10px 12px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.mute,
+        marginBottom: 4
+      }
+    }, l), /*#__PURE__*/React.createElement("div", {
+      className: "mono",
+      style: {
+        fontSize: 14,
+        fontWeight: 600,
+        color: money_ ? C.ink : v >= 0 ? C.up : C.down
+      }
+    }, v == null ? "—" : money_ ? money(v, "USD") : pctTxt(v))))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.mute,
+        marginTop: 10
+      }
+    }, hist.source || "Price history", " \xB7 raw/ungraded market price. Graded history not included."));
+  }
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 7,
-      marginBottom: 14,
-      flexWrap: "wrap"
+      gap: 6,
+      marginBottom: 14
     }
-  }, GRADES.map(g => /*#__PURE__*/React.createElement("button", {
-    key: g,
-    onClick: () => setGrade(g),
+  }, durs.map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    onClick: () => setDuration(k),
     style: {
-      padding: "6px 12px",
+      padding: "6px 14px",
       borderRadius: 8,
       fontSize: 13,
-      fontWeight: 500,
+      fontWeight: 600,
       cursor: "pointer",
-      border: "1px solid " + (grade === g ? C.accent : C.line),
-      background: grade === g ? C.accent + "1a" : C.panel,
-      color: grade === g ? C.accent : C.sub
+      border: "1px solid " + (duration === k ? C.accent : C.line),
+      background: duration === k ? C.accent + "1a" : C.panel,
+      color: duration === k ? C.accent : C.sub
     }
-  }, g))), /*#__PURE__*/React.createElement("div", {
+  }, l))), /*#__PURE__*/React.createElement("div", {
     style: {
       border: "1px solid " + C.line,
       borderRadius: 12,
-      padding: 22,
-      background: C.panel,
-      position: "relative"
+      padding: 20,
+      background: C.panel
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 600,
-      fontSize: 15
-    }
-  }, "Price history"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: C.gold,
-      marginBottom: 14
-    }
-  }, "Shape shown for structure \u2014 real prices load when feeds connect"), /*#__PURE__*/React.createElement("svg", {
-    viewBox: "-10 -10 " + (W + 20) + " " + (H + 30),
-    style: {
-      width: "100%",
-      opacity: 0.4
-    }
-  }, [0, .5, 1].map(t => /*#__PURE__*/React.createElement("line", {
-    key: t,
-    x1: 0,
-    y1: t * H,
-    x2: W,
-    y2: t * H,
-    stroke: C.line,
-    strokeWidth: 0.6
-  })), /*#__PURE__*/React.createElement("path", {
-    d: d,
-    fill: "none",
-    stroke: C.mute,
-    strokeWidth: 2,
-    strokeDasharray: "5 5"
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      inset: 0,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      background: C.bg,
-      border: "1px solid " + C.line,
-      borderRadius: 8,
-      padding: "8px 16px",
-      fontSize: 13,
-      color: C.sub
-    }
-  }, "Awaiting price feed"))));
+  }, body));
 }
 function Watchlist({
   hold,
