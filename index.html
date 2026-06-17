@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
-<title>Cardex BUILD-EXACT</title>
+<title>Cardex BUILD-JT</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
@@ -12864,15 +12864,12 @@ function CardPage({
   const [market, setMarket] = useState("both");
   const [pricing, setPricing] = useState(null);
   const [loadingP, setLoadingP] = useState(false);
-  const [sold, setSold] = useState(null);
-  const [loadingS, setLoadingS] = useState(false);
   const [hist, setHist] = useState(null);
   const [loadingH, setLoadingH] = useState(false);
   const [duration, setDuration] = useState("90d");
   useEffect(() => {
     let on = true;
     setLoadingP(true);
-    setLoadingS(true);
     const region = market === "uk" ? "uk" : "us";
     const qstr = "q=" + encodeURIComponent(card.name + " " + card.id) + "&grade=" + encodeURIComponent(grade) + "&market=" + region;
     fetch("/api/price?" + qstr).then(r => r.json()).then(d => {
@@ -12888,17 +12885,6 @@ function CardPage({
       if (on) {
         setPricing(null);
         setLoadingP(false);
-      }
-    });
-    fetch("/api/sold?" + qstr).then(r => r.json()).then(d => {
-      if (on) {
-        setSold(d || null);
-        setLoadingS(false);
-      }
-    }).catch(() => {
-      if (on) {
-        setSold(null);
-        setLoadingS(false);
       }
     });
     return () => {
@@ -13019,18 +13005,16 @@ function CardPage({
     }
   }, (() => {
     const mp = hist && hist.available && hist.marketPrice;
-    const eb = pricing && pricing.stats && pricing.stats.median;
-    const val = mp != null ? mp : eb;
     const matchTxt = hist && hist.matched ? hist.matched.name + (hist.printing ? " · " + hist.printing : "") : "";
-    const lbl = mp != null ? "market price · " + matchTxt : eb != null ? "raw median · " + pricing.stats.count + " eBay listings" : loadingH || loadingP ? "loading…" : "no price found";
+    const lbl = mp != null ? "market price · " + matchTxt : loadingH ? "loading…" : "no market price found";
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       className: "mono",
       style: {
         fontSize: 32,
         fontWeight: 600,
-        color: val != null ? C.ink : C.mute
+        color: mp != null ? C.ink : C.mute
       }
-    }, val != null ? money(val, "USD") : money(null, cur)), /*#__PURE__*/React.createElement("span", {
+    }, mp != null ? money(mp, "USD") : money(null, cur)), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 14,
         color: C.mute
@@ -13122,7 +13106,7 @@ function CardPage({
       gap: 2,
       overflowX: "auto"
     }
-  }, [["thesis", "Investment thesis"], ["pricing", "Pricing"], ["listings", "Current Listings"], ["sold", "Sold History"], ["chart", "Chart"]].map(([t, l]) => /*#__PURE__*/React.createElement("button", {
+  }, [["thesis", "Investment thesis"], ["chart", "Price & History"], ["listings", "Current Listings"]].map(([t, l]) => /*#__PURE__*/React.createElement("button", {
     key: t,
     onClick: () => setTab(t),
     style: {
@@ -13147,19 +13131,9 @@ function CardPage({
     sm: sm,
     hist: hist,
     loadingH: loadingH
-  }), tab === "pricing" && /*#__PURE__*/React.createElement(PricingTab, {
-    grade: grade,
-    setGrade: setGrade,
-    market: market,
-    setMarket: setMarket,
-    pricing: pricing,
-    loadingP: loadingP
   }), tab === "listings" && /*#__PURE__*/React.createElement(ListingsTab, {
     pricing: pricing,
     loadingP: loadingP
-  }), tab === "sold" && /*#__PURE__*/React.createElement(SoldTab, {
-    sold: sold,
-    loadingS: loadingS
   }), tab === "chart" && /*#__PURE__*/React.createElement(ChartTab, {
     hist: hist,
     loadingH: loadingH,
