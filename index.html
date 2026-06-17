@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
-<title>Cardex BUILD-IQ</title>
+<title>Cardex BUILD-EXACT</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
@@ -12909,7 +12909,9 @@ function CardPage({
     let on = true;
     setLoadingH(true);
     const isPar = /_p\\d/i.test(card.id) ? "1" : "";
-    const hq = "name=" + encodeURIComponent(card.name) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration + "&parallel=" + isPar;
+    const numMatch = card.id.match(/-(\\d{3})/);
+    const cardNum = numMatch ? numMatch[1] : "";
+    const hq = "name=" + encodeURIComponent(card.name) + "&number=" + encodeURIComponent(cardNum) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration + "&parallel=" + isPar;
     fetch("/api/history?" + hq).then(r => r.json()).then(d => {
       if (on) {
         setHist(d || null);
@@ -13019,7 +13021,8 @@ function CardPage({
     const mp = hist && hist.available && hist.marketPrice;
     const eb = pricing && pricing.stats && pricing.stats.median;
     const val = mp != null ? mp : eb;
-    const lbl = mp != null ? "market price" + (hist.printing ? " · " + hist.printing : "") : eb != null ? "raw median · " + pricing.stats.count + " eBay listings" : loadingH || loadingP ? "loading…" : "no price found";
+    const matchTxt = hist && hist.matched ? hist.matched.name + (hist.printing ? " · " + hist.printing : "") : "";
+    const lbl = mp != null ? "market price · " + matchTxt : eb != null ? "raw median · " + pricing.stats.count + " eBay listings" : loadingH || loadingP ? "loading…" : "no price found";
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       className: "mono",
       style: {
@@ -13788,6 +13791,124 @@ function ChartTab({
     const up = points[points.length - 1].price >= points[0].price;
     const col = up ? C.up : C.down;
     const lbl = [0, Math.floor(points.length / 2), points.length - 1];
+    const Chart = () => {
+      const [hi2, setHi2] = React.useState(null);
+      const wrapRef = React.useRef(null);
+      const onMove = e => {
+        const svg = e.currentTarget;
+        const r = svg.getBoundingClientRect();
+        const cx = ((e.clientX != null ? e.clientX : e.touches && e.touches[0].clientX) - r.left) / r.width;
+        const vx = cx * (W + 12) - 6; // back into viewBox space
+        let idx = Math.round(vx / W * (points.length - 1));
+        idx = Math.max(0, Math.min(points.length - 1, idx));
+        setHi2(idx);
+      };
+      const hp = hi2 != null ? points[hi2] : null;
+      const prev = hi2 != null && hi2 > 0 ? points[hi2 - 1] : null;
+      const dayChg = hp && prev ? (hp.price - prev.price) / prev.price * 100 : null;
+      return /*#__PURE__*/React.createElement("div", {
+        style: {
+          position: "relative"
+        }
+      }, /*#__PURE__*/React.createElement("svg", {
+        viewBox: "-6 -10 " + (W + 12) + " " + (H + 34),
+        style: {
+          width: "100%",
+          touchAction: "none"
+        },
+        onMouseMove: onMove,
+        onMouseLeave: () => setHi2(null),
+        onTouchStart: onMove,
+        onTouchMove: onMove
+      }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+        id: "cg",
+        x1: "0",
+        y1: "0",
+        x2: "0",
+        y2: "1"
+      }, /*#__PURE__*/React.createElement("stop", {
+        offset: "0%",
+        stopColor: col,
+        stopOpacity: "0.25"
+      }), /*#__PURE__*/React.createElement("stop", {
+        offset: "100%",
+        stopColor: col,
+        stopOpacity: "0"
+      }))), [0, .5, 1].map(t => /*#__PURE__*/React.createElement("line", {
+        key: t,
+        x1: 0,
+        y1: t * H,
+        x2: W,
+        y2: t * H,
+        stroke: C.line,
+        strokeWidth: 0.6
+      })), /*#__PURE__*/React.createElement("path", {
+        d: area,
+        fill: "url(#cg)"
+      }), /*#__PURE__*/React.createElement("path", {
+        d: d,
+        fill: "none",
+        stroke: col,
+        strokeWidth: 2.2
+      }), hp && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+        x1: X(hi2),
+        y1: 0,
+        x2: X(hi2),
+        y2: H,
+        stroke: C.sub,
+        strokeWidth: 0.8,
+        strokeDasharray: "3 3"
+      }), /*#__PURE__*/React.createElement("circle", {
+        cx: X(hi2),
+        cy: Y(hp.price),
+        r: 4,
+        fill: col,
+        stroke: C.bg,
+        strokeWidth: 2
+      })), lbl.map(i => /*#__PURE__*/React.createElement("text", {
+        key: i,
+        x: Math.min(Math.max(X(i), 14), W - 14),
+        y: H + 20,
+        fill: C.mute,
+        fontSize: 10,
+        textAnchor: "middle"
+      }, points[i].date.slice(5)))), hp && /*#__PURE__*/React.createElement("div", {
+        style: {
+          position: "absolute",
+          top: 0,
+          left: "clamp(8px, " + (X(hi2) + 6) / (W + 12) * 100 + "%, calc(100% - 130px))",
+          background: C.bg,
+          border: "1px solid " + C.lineHi,
+          borderRadius: 8,
+          padding: "8px 11px",
+          pointerEvents: "none",
+          minWidth: 118,
+          boxShadow: "0 6px 20px #000a"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: C.mute,
+          marginBottom: 3
+        }
+      }, new Date(hp.date).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      })), /*#__PURE__*/React.createElement("div", {
+        className: "mono",
+        style: {
+          fontSize: 17,
+          fontWeight: 700
+        }
+      }, money(hp.price, "USD")), dayChg != null && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          fontWeight: 600,
+          color: dayChg >= 0 ? C.up : C.down
+        }
+      }, pctTxt(dayChg), " vs prev")));
+    };
     body = /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
@@ -13815,49 +13936,13 @@ function ChartTab({
         fontSize: 12,
         color: C.mute
       }
-    }, hist.matched ? hist.matched.name + " · " + (hist.condition || "NM") : "")), /*#__PURE__*/React.createElement("svg", {
-      viewBox: "-6 -10 " + (W + 12) + " " + (H + 30),
+    }, hist.matched ? hist.matched.name + " · " + (hist.printing || hist.condition || "NM") : "")), /*#__PURE__*/React.createElement(Chart, null), /*#__PURE__*/React.createElement("div", {
       style: {
-        width: "100%"
+        fontSize: 11,
+        color: C.mute,
+        marginTop: 6
       }
-    }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
-      id: "cg",
-      x1: "0",
-      y1: "0",
-      x2: "0",
-      y2: "1"
-    }, /*#__PURE__*/React.createElement("stop", {
-      offset: "0%",
-      stopColor: col,
-      stopOpacity: "0.25"
-    }), /*#__PURE__*/React.createElement("stop", {
-      offset: "100%",
-      stopColor: col,
-      stopOpacity: "0"
-    }))), [0, .5, 1].map(t => /*#__PURE__*/React.createElement("line", {
-      key: t,
-      x1: 0,
-      y1: t * H,
-      x2: W,
-      y2: t * H,
-      stroke: C.line,
-      strokeWidth: 0.6
-    })), /*#__PURE__*/React.createElement("path", {
-      d: area,
-      fill: "url(#cg)"
-    }), /*#__PURE__*/React.createElement("path", {
-      d: d,
-      fill: "none",
-      stroke: col,
-      strokeWidth: 2.2
-    }), lbl.map(i => /*#__PURE__*/React.createElement("text", {
-      key: i,
-      x: Math.min(Math.max(X(i), 14), W - 14),
-      y: H + 18,
-      fill: C.mute,
-      fontSize: 10,
-      textAnchor: "middle"
-    }, points[i].date.slice(5)))), st && /*#__PURE__*/React.createElement("div", {
+    }, "Hover or drag across the chart for the price on each day."), st && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit,minmax(90px,1fr))",
