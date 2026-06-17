@@ -19,8 +19,8 @@ export default async function handler(req, res) {
   const key = process.env.JUSTTCG_API_KEY;
   if (!key) return res.status(200).json({ available: false, reason: "JustTCG API key not configured", history: [] });
 
-  const { name = "", set = "", duration = "90d", parallel = "" } = req.query;
-  if (!name) return res.status(400).json({ error: "Missing name" });
+  const { name = "", set = "", number = "", duration = "90d", parallel = "" } = req.query;
+  if (!name && !number) return res.status(400).json({ error: "Missing name/number" });
   const isParallel = parallel === "1" || /_p\d/i.test(name);
 
   try {
@@ -28,10 +28,12 @@ export default async function handler(req, res) {
     // The /cards GET endpoint accepts a search query (q) + game filter.
     const params = new URLSearchParams({
       game: "one-piece-card-game",
-      q: name,
       limit: "20",
-      priceHistoryDuration: duration, // 7d / 30d / 90d
+      priceHistoryDuration: duration,
     });
+    if (name) params.set("q", name);
+    if (number) params.set("number", number);   // exact card-number match (key fix)
+    if (set) params.set("set", set);            // narrow to the set
     const r = await fetch(`${BASE}/cards?${params.toString()}`, {
       headers: { "x-api-key": key, "Content-Type": "application/json" },
     });
@@ -41,33 +43,44 @@ export default async function handler(req, res) {
     }
     const data = await r.json();
     let cards = data.data || [];
-    if (!cards.length) return res.status(200).json({ available: false, reason: "No match found", history: [] });
+    if (!cards.length) return res.status(200).json({ available: false, reason: "No match found on JustTCG", history: [] });
 
-    // Pick the best card match: prefer one whose set matches, else first result.
+    // Restrict to cards whose name matches (avoid unrelated results).
+    const nameNorm = name.replace(/_p\d+/i,"").replace(/[^a-z0-9]/gi, "").toLowerCase();
     const setNorm = set.replace(/[^a-z0-9]/gi, "").toLowerCase();
-    let card =
-      cards.find((c) => (c.set || c.set_name || "").replace(/[^a-z0-9]/gi, "").toLowerCase().includes(setNorm)) ||
-      cards.find((c) => (c.name || "").toLowerCase() === name.toLowerCase()) ||
-      cards[0];
+    const nameMatches = cards.filter((c)=> (c.name||"").replace(/[^a-z0-9]/gi,"").toLowerCase().includes(nameNorm) || nameNorm.includes((c.name||"").replace(/[^a-z0-9]/gi,"").toLowerCase()));
+    const pool = nameMatches.length ? nameMatches : cards;
 
-    // From the chosen card, pick the Near Mint / Normal variant as the headline,
-    // and collect any variant that has a priceHistory.
-    const variants = card.variants || [];
+    // Flatten all (card,variant) pairs with Near Mint preference, carrying price.
     const nm = (v) => /near\s*mint/i.test(v.condition || "");
-    const foil = (v) => /(foil|holo|parallel|alt)/i.test(v.printing || "");
-    let pickVariant;
-    if (isParallel) {
-      pickVariant =
-        variants.find((v) => nm(v) && foil(v)) ||
-        variants.find((v) => foil(v)) ||
-        variants.find((v) => nm(v)) ||
-        variants[0];
-    } else {
-      pickVariant =
-        variants.find((v) => nm(v) && /normal/i.test(v.printing || "")) ||
-        variants.find((v) => nm(v)) ||
-        variants[0];
+    const foil = (v) => /(foil|holo|parallel|alt|manga)/i.test(v.printing || "");
+    let pairs = [];
+    for (const c of pool) {
+      const setHit = (c.set||c.set_name||"").replace(/[^a-z0-9]/gi,"").toLowerCase().includes(setNorm);
+      for (const v of (c.variants||[])) {
+        if (v.price==null) continue;
+        pairs.push({ c, v, setHit, isFoil:foil(v), isNM:nm(v), price:v.price });
+      }
     }
+    if (!pairs.length) return res.status(200).json({ available:false, reason:"Matched a card but it had no priced variants.", history:[] });
+
+    // Prefer set match, then Near Mint.
+    const tier = (p)=> (p.setHit?2:0) + (p.isNM?1:0);
+    let pick;
+    if (isParallel) {
+      // Parallel/alt-art: prefer foil/alt printing; among those, the HIGHER price
+      // (manga/alt parallels are the expensive ones, not the base).
+      const foils = pairs.filter(p=>p.isFoil);
+      const cand = foils.length ? foils : pairs;
+      pick = cand.sort((a,b)=> (tier(b)-tier(a)) || (b.price-a.price))[0];
+    } else {
+      // Base card: prefer Normal printing + set match + Near Mint; typical (not max) price.
+      const normals = pairs.filter(p=>!p.isFoil);
+      const cand = normals.length ? normals : pairs;
+      pick = cand.sort((a,b)=> (tier(b)-tier(a)))[0];
+    }
+    const card = pick.c;
+    const pickVariant = pick.v;
 
     // Build the history series from {p,t} points (t = unix seconds).
     const rawHist =
