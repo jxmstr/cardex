@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5"/>
-<title>Cardex BUILD-JT</title>
+<title>Cardex BUILD-PREM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 
@@ -12897,7 +12897,7 @@ function CardPage({
     const isPar = /_p\\d/i.test(card.id) ? "1" : "";
     const numMatch = card.id.match(/-(\\d{3})/);
     const cardNum = numMatch ? numMatch[1] : "";
-    const hq = "name=" + encodeURIComponent(card.name) + "&number=" + encodeURIComponent(cardNum) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration + "&parallel=" + isPar;
+    const hq = "name=" + encodeURIComponent(card.name) + "&number=" + encodeURIComponent(cardNum) + "&set=" + encodeURIComponent(card.setName || card.setCode || "") + "&duration=" + duration + "&parallel=" + isPar + "&rarity=" + encodeURIComponent(card.rarity || "") + "&cardid=" + encodeURIComponent(card.id || "");
     fetch("/api/history?" + hq).then(r => r.json()).then(d => {
       if (on) {
         setHist(d || null);
