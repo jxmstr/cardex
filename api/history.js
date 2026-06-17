@@ -19,9 +19,13 @@ export default async function handler(req, res) {
   const key = process.env.JUSTTCG_API_KEY;
   if (!key) return res.status(200).json({ available: false, reason: "JustTCG API key not configured", history: [] });
 
-  const { name = "", set = "", number = "", duration = "90d", parallel = "" } = req.query;
+  const { name = "", set = "", number = "", duration = "90d", parallel = "", rarity = "", cardid = "" } = req.query;
   if (!name && !number) return res.status(400).json({ error: "Missing name/number" });
-  const isParallel = parallel === "1" || /_p\d/i.test(name);
+  // Premium-seeking when: explicit parallel flag, a _p suffix in the id/name,
+  // or a premium rarity (SP/SEC/L/SR/P). These cards have valuable variants.
+  const isParallel = parallel === "1"
+    || /_p\d/i.test(name) || /_p\d/i.test(cardid)
+    || /(SP|SEC|^L$|SR|^P$|SP CARD)/i.test(rarity);
 
   try {
     // Try a cascade of queries from most→least specific; use the first that
