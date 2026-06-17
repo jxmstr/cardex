@@ -63,39 +63,49 @@ export default async function handler(req, res) {
       });
     }
 
-    // Restrict to cards whose name matches (avoid unrelated results).
-    const nameNorm = name.replace(/_p\d+/i,"").replace(/[^a-z0-9]/gi, "").toLowerCase();
-    const setNorm = set.replace(/[^a-z0-9]/gi, "").toLowerCase();
-    const nameMatches = cards.filter((c)=> (c.name||"").replace(/[^a-z0-9]/gi,"").toLowerCase().includes(nameNorm) || nameNorm.includes((c.name||"").replace(/[^a-z0-9]/gi,"").toLowerCase()));
-    const pool = nameMatches.length ? nameMatches : cards;
+    // The Bandai card number (e.g. "093" from OP09-093). Keep only cards whose
+    // number ends with this — removes unrelated cards (OP16-119, ST03-014, etc.).
+    const baseNum = (number||"").replace(/^0+/,"");
+    const numOk = (c)=>{ if(!baseNum) return true; const cn=(c.number||"").toUpperCase(); return cn.endsWith("-"+(number||"")) || cn.endsWith("-0"+(number||"")) || cn.endsWith(baseNum); };
 
-    // Flatten all (card,variant) pairs with Near Mint preference, carrying price.
+    // Exclude promo / event / tournament / starter / revision junk sets.
+    const JUNK = /(event|tournament|anniversary|revision|pre-?release|starter|premium booster|release event)/i;
     const nm = (v) => /near\s*mint/i.test(v.condition || "");
     const foil = (v) => /(foil|holo|parallel|alt|manga)/i.test(v.printing || "");
+    // premium = the valuable parallels: SP / Manga / Alt-art / Gold / Silver in the NAME
+    const premium = (c) => /(\(SP\)|manga|alt|parallel|gold|silver|special)/i.test(c.name||"");
+    const isSR = (c) => /(secret|super rare|leader|special)/i.test(c.rarity||"");
+
+    // Build candidate pairs, scored.
     let pairs = [];
-    for (const c of pool) {
-      const setHit = (c.set||c.set_name||"").replace(/[^a-z0-9]/gi,"").toLowerCase().includes(setNorm);
+    for (const c of cards) {
+      if (!numOk(c)) continue;
+      const junk = JUNK.test(c.set||c.set_name||"");
       for (const v of (c.variants||[])) {
         if (v.price==null) continue;
-        pairs.push({ c, v, setHit, isFoil:foil(v), isNM:nm(v), price:v.price });
+        pairs.push({ c, v, junk, isPrem:premium(c), isSR:isSR(c), isFoil:foil(v), isNM:nm(v), price:v.price });
       }
+    }
+    // If number filtering removed everything, fall back to all priced variants.
+    if (!pairs.length) {
+      for (const c of cards) for (const v of (c.variants||[])) if (v.price!=null)
+        pairs.push({ c, v, junk:JUNK.test(c.set||c.set_name||""), isPrem:premium(c), isSR:isSR(c), isFoil:foil(v), isNM:nm(v), price:v.price });
     }
     if (!pairs.length) return res.status(200).json({ available:false, reason:"Matched a card but it had no priced variants.", history:[] });
 
-    // Prefer set match, then Near Mint.
-    const tier = (p)=> (p.setHit?2:0) + (p.isNM?1:0);
     let pick;
     if (isParallel) {
-      // Parallel/alt-art: prefer foil/alt printing; among those, the HIGHER price
-      // (manga/alt parallels are the expensive ones, not the base).
-      const foils = pairs.filter(p=>p.isFoil);
-      const cand = foils.length ? foils : pairs;
-      pick = cand.sort((a,b)=> (tier(b)-tier(a)) || (b.price-a.price))[0];
+      // Parallel/alt-art card: prefer PREMIUM named variants (SP/Manga/Gold…),
+      // non-junk, Near Mint; among those, the highest price (the real alt-art).
+      const prem = pairs.filter(p=>p.isPrem && !p.junk);
+      const cand = prem.length ? prem : pairs.filter(p=>!p.junk).length ? pairs.filter(p=>!p.junk) : pairs;
+      pick = cand.sort((a,b)=> (b.isNM-a.isNM) || (b.price-a.price))[0];
     } else {
-      // Base card: prefer Normal printing + set match + Near Mint; typical (not max) price.
-      const normals = pairs.filter(p=>!p.isFoil);
-      const cand = normals.length ? normals : pairs;
-      pick = cand.sort((a,b)=> (tier(b)-tier(a)))[0];
+      // Base card: NON-premium, non-junk, SR/foil base print, Near Mint.
+      const base = pairs.filter(p=>!p.isPrem && !p.junk);
+      const cand = base.length ? base : pairs.filter(p=>!p.junk).length ? pairs.filter(p=>!p.junk) : pairs;
+      // prefer SR base (the real card) + NM; take the median-ish (lowest NM of the real base)
+      pick = cand.sort((a,b)=> (b.isSR-a.isSR) || (b.isNM-a.isNM) || (a.price-b.price))[0];
     }
     const card = pick.c;
     const pickVariant = pick.v;
