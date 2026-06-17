@@ -24,26 +24,33 @@ export default async function handler(req, res) {
   const isParallel = parallel === "1" || /_p\d/i.test(name);
 
   try {
-    // Search JustTCG for this card in the One Piece game.
-    // The /cards GET endpoint accepts a search query (q) + game filter.
-    const params = new URLSearchParams({
-      game: "one-piece-card-game",
-      limit: "20",
-      priceHistoryDuration: duration,
-    });
-    if (name) params.set("q", name);
-    if (number) params.set("number", number);   // exact card-number match (key fix)
-    if (set) params.set("set", set);            // narrow to the set
-    const r = await fetch(`${BASE}/cards?${params.toString()}`, {
-      headers: { "x-api-key": key, "Content-Type": "application/json" },
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      return res.status(200).json({ available: false, reason: `JustTCG error ${r.status}: ${txt}`, history: [] });
+    // Try a cascade of queries from most→least specific; use the first that
+    // returns cards with priced variants. Prevents $0 when one combo over-filters.
+    async function tryQuery(extra) {
+      const p = new URLSearchParams({ game: "one-piece-card-game", limit: "20", priceHistoryDuration: duration });
+      for (const [k, v] of Object.entries(extra)) { if (v) p.set(k, v); }
+      const rr = await fetch(`${BASE}/cards?${p.toString()}`, { headers: { "x-api-key": key, "Content-Type": "application/json" } });
+      if (!rr.ok) return { ok:false, status:rr.status, txt: await rr.text(), cards: [] };
+      const dd = await rr.json();
+      return { ok:true, cards: dd.data || [] };
     }
-    const data = await r.json();
-    let cards = data.data || [];
-    if (!cards.length) return res.status(200).json({ available: false, reason: "No match found on JustTCG", history: [] });
+    const attempts = [
+      { number, set },          // number + set
+      { number },               // number only
+      { q: name, set },         // name + set
+      { q: name },              // name only
+      { q: (name+" "+number).trim() }, // smart text search (handles number)
+    ];
+    let cards = [], lastErr = "";
+    for (const a of attempts) {
+      if (!a.number && !a.q) continue;
+      const r = await tryQuery(a);
+      if (!r.ok) { lastErr = `JustTCG ${r.status}: ${r.txt}`; continue; }
+      const priced = (r.cards||[]).filter(c => (c.variants||[]).some(v => v.price!=null));
+      if (priced.length) { cards = priced; break; }
+      if (r.cards && r.cards.length && !cards.length) cards = r.cards; // keep as weak fallback
+    }
+    if (!cards.length) return res.status(200).json({ available: false, reason: lastErr || "No match found on JustTCG", history: [] });
 
     // Restrict to cards whose name matches (avoid unrelated results).
     const nameNorm = name.replace(/_p\d+/i,"").replace(/[^a-z0-9]/gi, "").toLowerCase();
