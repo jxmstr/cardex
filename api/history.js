@@ -52,6 +52,17 @@ export default async function handler(req, res) {
     }
     if (!cards.length) return res.status(200).json({ available: false, reason: lastErr || "No match found on JustTCG", history: [] });
 
+    // DEBUG: ?debug=1 returns every candidate so we can inspect JustTCG's catalog.
+    if (req.query.debug === "1") {
+      return res.status(200).json({
+        debug: true,
+        candidates: cards.map((c) => ({
+          name: c.name, set: c.set_name || c.set, number: c.number, rarity: c.rarity,
+          variants: (c.variants || []).map((v) => ({ printing: v.printing, condition: v.condition, price: v.price })),
+        })),
+      });
+    }
+
     // Restrict to cards whose name matches (avoid unrelated results).
     const nameNorm = name.replace(/_p\d+/i,"").replace(/[^a-z0-9]/gi, "").toLowerCase();
     const setNorm = set.replace(/[^a-z0-9]/gi, "").toLowerCase();
